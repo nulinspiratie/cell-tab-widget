@@ -10,3 +10,5 @@ celltabwidget/static/
 
 # OS X
 .DS_Store
+
+.idea
