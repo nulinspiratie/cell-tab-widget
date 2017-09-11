@@ -13,12 +13,13 @@ class CellHiderWidget(widgets.DOMWidget):
 
 
 class CellTab(widgets.Tab):
-    def __init__(self, names: Union[list, dict], is_primary=True):
+    def __init__(self, names: Union[list, dict], parent=None):
         super().__init__()
 
         if isinstance(names, list):
             names = {name: {} for name in names}
         self.names = names
+        self.parent = parent
         self.children = []
 
         if names:
@@ -38,7 +39,7 @@ class CellTab(widgets.Tab):
 
         self.observe(self._handle_tab_change, 'selected_index')
 
-        if is_primary:
+        if parent is None:
             # Add the widget that actually handles the hiding
             self.cell_hider_widget = CellHiderWidget()
             if names:
@@ -47,6 +48,17 @@ class CellTab(widgets.Tab):
             display(self.cell_hider_widget)
             display(self)
 
+    @property
+    def name(self):
+        name = ''
+        if self.children:
+            name += self.get_title(self.selected_index)
+            selected_child = self.children(self.selected_index)
+            if isinstance(selected_child, CellTab):
+                name += f'.{selected_child.name}'
+
+        return name
+
     def _handle_tab_button_click(self, change):
         idx = len(self.children) - 1
         self.add_subtab_button(index=idx)
@@ -54,12 +66,17 @@ class CellTab(widgets.Tab):
         self.set_title(idx+1, '+')
 
     def _handle_tab_change(self, change):
+        # TODO Look into, broken
         tab = change['owner']
         name = tab.get_title(change['new'])
-
-        tab.cell_hider_widget.previous_value = tab.get_title(change['old'])
-        if name != '+':
-            tab.cell_hider_widget.value = name
+        if name == '+':
+            return
+        elif self.parent is not None:
+            self.parent._handle_tab_change(change)
+        else:
+            tab.cell_hider_widget.previous_value = tab.get_title(change['old'])
+            if name != '+':
+                tab.cell_hider_widget.value = self.name
 
     def _handle_subtab_button_click(self, change):
         self.add_subtab([], index=self.selected_index, replace=True)
@@ -75,7 +92,7 @@ class CellTab(widgets.Tab):
 
     def add_subtab(self,  tab_names, index=None, replace=False):
         subtab = CellTab(tab_names, is_primary=False)
-        self.add_child(subtab, index=index, replace=replace)
+        self.add_child(subtab, index=index, parent=self)
         return subtab
 
     def add_child(self, child, index=None, replace=False):
