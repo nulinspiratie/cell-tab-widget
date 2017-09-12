@@ -2,17 +2,27 @@
  * Created by Serwan Asaad on 11-Sep-17.
  */
 var widgets = require('@jupyter-widgets/base');
-var Jupyter = require('base/js/namespace');
 var _ = require('lodash');
 
 
 var log_prefix = '[cell_hider]';
+var CellHiderModel = widgets.DOMWidgetModel.extend({
+    defaults: _.extend(widgets.DOMWidgetModel.prototype.defaults(), {
+        _model_name : 'CellHiderModel',
+        _view_name : 'CellHiderView',
+        _model_module : 'cell-tab-widget',
+        _view_module : 'cell-tab-widget',
+        _model_module_version : '0.1.0',
+        _view_module_version : '0.1.0',
+        previous_value : 'none',
+        value : 'default',
+        min_index : 1
+    })
+});
 
 var CellHiderView = widgets.DOMWidgetView.extend({
 
-    render: function() {
-        this.min_index = Jupyter.notebook.get_selected_index();
-
+    render: function () {
         this.value_changed();
         this.model.on('change:value', this.value_changed, this);
         patch_actions();
@@ -21,11 +31,10 @@ var CellHiderView = widgets.DOMWidgetView.extend({
     value_changed: function() {
         var previous_value = this.model.get('previous_value');
         var value = this.model.get('value');
-        console.log('value changed');
-        this.el.textContent = value;
+        console.log(`value changed from ${previous_value} to ${value}`);
 
-        if (previous_value !== 'none'){
-            this.tag_cells(value)
+        if (previous_value !== 'none' && value !== 'all'){
+            this.tag_cells(previous_value)
         }
 
         if (value === 'all'){
@@ -38,42 +47,74 @@ var CellHiderView = widgets.DOMWidgetView.extend({
     },
 
     tag_cells: function(name){
-        cells = Jupyter.notebook.get_cells();
+        console.log(`Tagging cells ${name}`);
+        var cells = Jupyter.notebook.get_cells()
+        var min_index = this.model.get('min_index');
+        for (let cell of cells) {
+            if (Jupyter.notebook.find_cell_index(cell) <= min_index){
+                // Before the tab cell, ignore
+                continue;
+            }
 
+            if (cell.metadata.cell_tab == 'stop'){
+                // Reached stop cell
+                break;
+            }
+
+            if(cell.metadata.hidden !== true){
+                // Not hidden, tag cell
+                cell.metadata.cell_tab = name;
+            }
+        }
     },
 
     hide_all_cells: function(){
         var cells = Jupyter.notebook.get_cells();
+        var min_index = this.model.get('min_index');
         for (let cell of cells) {
-            if (cell.metadata.hasOwnProperty('cell_tab') && cell.metadata.cell_tab === 'stop'){
+            if (Jupyter.notebook.find_cell_index(cell) <= min_index){
+                // Before the tab cell, ignore
+                continue;
+            }
+
+            if (cell.metadata.cell_tab === 'stop'){
                 break;
             }
+
             this.hide_cell(cell)
         }
     },
 
     hide_all_cells_except: function(name) {
+        console.log(`Hiding all cells except ${name}`);
         var cells = Jupyter.notebook.get_cells();
+        var min_index = this.model.get('min_index');
         for (let cell of cells) {
-            if (cell.metadata.hasOwnProperty('cell_tab') && cell.metadata.cell_tab === 'stop'){
+            if (Jupyter.notebook.find_cell_index(cell) <= min_index){
+                // Before the tab cell, ignore
+                continue;
+            }
+            if (cell.metadata.cell_tab === 'stop'){
                 break;
             }
-            if (cell.metadata.hasOwnProperty('cell_tab') && cell.metadata.cell_tab !== name){
+            if (cell.metadata.cell_tab !== name){
                 this.hide_cell(cell)
             }
         }
     },
 
     show_cells: function(name) {
+        console.log(`Showing cells with value ${name}`);
         var cells = Jupyter.notebook.get_cells();
         for (let cell of cells) {
-            if (cell.metadata.hasOwnProperty('cell_tab') && cell.metadata.cell_tab === name){
+            if (cell.metadata.cell_tab === name){
                 this.show_cell(cell)
             }
         }
     },
 
     show_all_cells: function() {
+        console.log(`Showing all cells`);
         var cells = Jupyter.notebook.get_cells();
         for (let cell of cells) {
             this.show_cell(cell)
@@ -81,11 +122,13 @@ var CellHiderView = widgets.DOMWidgetView.extend({
     },
 
     hide_cell: function(cell) {
-        cell.element.find("div.input").parent("div.cell").css("display", "none")
+        cell.element.slideUp('fast')
+        cell.metadata.hidden = true;
     },
 
     show_cell: function(cell) {
         cell.element.find("div.input").parent("div.cell").css("display", "")
+        delete cell.metadata.hidden
     }
 });
 
@@ -130,6 +173,8 @@ function patch_actions () {
     });
 }
 
-return {
+
+module.exports = {
+    CellHiderModel : CellHiderModel,
     CellHiderView : CellHiderView
 };
