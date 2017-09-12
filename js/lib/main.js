@@ -33,7 +33,7 @@ var CellHiderView = widgets.DOMWidgetView.extend({
         var value = this.model.get('value');
         console.log(`value changed from ${previous_value} to ${value}`);
 
-        if (previous_value !== 'none' && value !== 'all'){
+        if (previous_value !== 'none' && previous_value !== 'all'){
             this.tag_cells(previous_value)
         }
 
