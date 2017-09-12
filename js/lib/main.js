@@ -25,6 +25,7 @@ var CellHiderView = widgets.DOMWidgetView.extend({
     render: function () {
         this.value_changed();
         this.model.on('change:value', this.value_changed, this);
+        patch_Notebook();
         patch_actions();
     },
 
@@ -132,9 +133,38 @@ var CellHiderView = widgets.DOMWidgetView.extend({
     }
 });
 
-function patch_actions () {
+function patch_Notebook () {
     return new Promise(function (resolve, reject) {
-        require(['notebook/js/tooltip'], function on_success (tooltip) {
+            console.debug(log_prefix, 'patching Notebook.protoype');
+
+            // we have to patch select, since the select.Cell event is only fired
+            // by cell click events, not by the notebook select method
+            var orig_notebook_select = notebook.Notebook.prototype.select;
+            notebook.Notebook.prototype.select = function (index, moveanchor) {
+                if (select_reveals) {
+                    reveal_cell_by_index(index);
+                }
+                return orig_notebook_select.apply(this, arguments);
+            };
+
+            // we have to patch undelete, as there is no event to bind to. We
+            // could bind to create.Cell, but that'd be a bit OTT
+            var orig_notebook_undelete = notebook.Notebook.prototype.undelete;
+            notebook.Notebook.prototype.undelete = function () {
+                var ret = orig_notebook_undelete.apply(this, arguments);
+                update_collapsed_headings();
+                return ret;
+            };
+
+            resolve();
+        }).catch(function on_reject (reason) {
+        console.warn(log_prefix, 'error patching Notebook.protoype:', reason);
+    })
+};
+
+function patch_actions () {
+    return new Promise(
+        function (resolve, reject) {
             console.debug(log_prefix, 'patching Jupyter up/down actions');
 
             var kbm = Jupyter.keyboard_manager;
@@ -167,7 +197,6 @@ function patch_actions () {
             };
 
             resolve();
-        }, reject);
     }).catch(function on_reject (reason) {
         console.warn(log_prefix, 'error patching Jupyter up/down actions:', reason);
     });
