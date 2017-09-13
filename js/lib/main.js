@@ -16,17 +16,23 @@ var CellHiderModel = widgets.DOMWidgetModel.extend({
         _view_module_version : '0.1.0',
         previous_value : 'none',
         value : 'default',
-        min_index : 1
+        min_index : 1,
+        backup : false,
+        load_backup : false
     })
 });
 
 var CellHiderView = widgets.DOMWidgetView.extend({
 
     render: function () {
+         this.model.set('previous_value', 'none')
         this.value_changed();
         this.model.on('change:value', this.value_changed, this);
-        patch_Notebook();
-        patch_actions();
+
+        this.model.on('change:backup', this.backup, this);
+        this.model.on('change:load_backup', this.load_backup, this);
+
+        this.patch_actions();
     },
 
     value_changed: function() {
@@ -45,6 +51,27 @@ var CellHiderView = widgets.DOMWidgetView.extend({
             this.hide_all_cells_except(value);
             this.show_cells(value)
         }
+    },
+
+    backup: function() {
+        var cells = Jupyter.notebook.get_cells();
+        for (let cell of cells) {
+            if (cell.metadata.cell_tab !== undefined){
+                cell.metadata.cell_tab_backup = cell.metadata.cell_tab;
+            }
+        }
+    },
+
+    load_backup: function() {
+        var cells = Jupyter.notebook.get_cells();
+        for (let cell of cells) {
+            if (cell.metadata.cell_tab_backup !== undefined){
+                cell.metadata.cell_tab = cell.metadata.cell_tab_backup;
+            }
+        }
+        var value = this.model.get('value');
+        this.hide_all_cells_except(value);
+        this.show_cells(value)
     },
 
     tag_cells: function(name){
@@ -130,77 +157,48 @@ var CellHiderView = widgets.DOMWidgetView.extend({
     show_cell: function(cell) {
         cell.element.find("div.input").parent("div.cell").css("display", "")
         delete cell.metadata.hidden
-    }
+    },
+
+
+    patch_actions: function() {
+        console.log(log_prefix, 'patching Jupyter up/down actions');
+
+        var kbm = Jupyter.keyboard_manager;
+
+        var action_up = kbm.actions.get(kbm.command_shortcuts.get_shortcut('up'));
+        var orig_up_handler = action_up.handler;
+        action_up.handler = function (env) {
+            for (var index = env.notebook.get_selected_index() - 1; (index !== null) && (index >= 0); index--) {
+                if (env.notebook.get_cell(index).element.is(':visible')) {
+                    env.notebook.select(index);
+                    env.notebook.focus_cell();
+                    return;
+                }
+            }
+            return orig_up_handler.apply(this, arguments);
+        };
+
+        var action_down = kbm.actions.get(kbm.command_shortcuts.get_shortcut('down'));
+        var orig_down_handler = action_down.handler;
+        action_down.handler = function (env) {
+            var ncells = env.notebook.ncells();
+            for (var index = env.notebook.get_selected_index() + 1; (index !== null) && (index < ncells); index++) {
+                if (env.notebook.get_cell(index).element.is(':visible')) {
+                    env.notebook.select(index);
+                    env.notebook.focus_cell();
+                    return;
+                }
+            }
+            return orig_down_handler.apply(this, arguments);
+        };
+        // disable any events related to delete.Cell. In particular,
+        // collapsible_headings unhides any cells without headings
+        Jupyter.notebook.events.off('delete.Cell');
+        Jupyter.notebook.events.off('create.Cell');
+        Jupyter.notebook.events.off('delete.Cell');
+        Jupyter.notebook.events.off('rendered.MarkdownCell');
+    },
 });
-
-function patch_Notebook () {
-    return new Promise(function (resolve, reject) {
-            console.debug(log_prefix, 'patching Notebook.protoype');
-
-            // we have to patch select, since the select.Cell event is only fired
-            // by cell click events, not by the notebook select method
-            var orig_notebook_select = notebook.Notebook.prototype.select;
-            notebook.Notebook.prototype.select = function (index, moveanchor) {
-                if (select_reveals) {
-                    reveal_cell_by_index(index);
-                }
-                return orig_notebook_select.apply(this, arguments);
-            };
-
-            // we have to patch undelete, as there is no event to bind to. We
-            // could bind to create.Cell, but that'd be a bit OTT
-            var orig_notebook_undelete = notebook.Notebook.prototype.undelete;
-            notebook.Notebook.prototype.undelete = function () {
-                var ret = orig_notebook_undelete.apply(this, arguments);
-                update_collapsed_headings();
-                return ret;
-            };
-
-            resolve();
-        }).catch(function on_reject (reason) {
-        console.warn(log_prefix, 'error patching Notebook.protoype:', reason);
-    })
-};
-
-function patch_actions () {
-    return new Promise(
-        function (resolve, reject) {
-            console.debug(log_prefix, 'patching Jupyter up/down actions');
-
-            var kbm = Jupyter.keyboard_manager;
-
-            var action_up = kbm.actions.get(kbm.command_shortcuts.get_shortcut('up'));
-            var orig_up_handler = action_up.handler;
-            action_up.handler = function (env) {
-                for (var index = env.notebook.get_selected_index() - 1; (index !== null) && (index >= 0); index--) {
-                    if (env.notebook.get_cell(index).element.is(':visible')) {
-                        env.notebook.select(index);
-                        env.notebook.focus_cell();
-                        return;
-                    }
-                }
-                return orig_up_handler.apply(this, arguments);
-            };
-
-            var action_down = kbm.actions.get(kbm.command_shortcuts.get_shortcut('down'));
-            var orig_down_handler = action_down.handler;
-            action_down.handler = function (env) {
-                var ncells = env.notebook.ncells();
-                for (var index = env.notebook.get_selected_index() + 1; (index !== null) && (index < ncells); index++) {
-                    if (env.notebook.get_cell(index).element.is(':visible')) {
-                        env.notebook.select(index);
-                        env.notebook.focus_cell();
-                        return;
-                    }
-                }
-                return orig_down_handler.apply(this, arguments);
-            };
-
-            resolve();
-    }).catch(function on_reject (reason) {
-        console.warn(log_prefix, 'error patching Jupyter up/down actions:', reason);
-    });
-}
 
 
 module.exports = {

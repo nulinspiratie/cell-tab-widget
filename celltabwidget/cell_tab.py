@@ -1,7 +1,9 @@
+from time import sleep
 import ipywidgets as widgets
 from IPython.display import display
-from traitlets import Unicode, Int
+from traitlets import Unicode, Int, Bool
 from typing import Union
+from collections import OrderedDict
 
 
 class CellHiderWidget(widgets.DOMWidget):
@@ -15,6 +17,8 @@ class CellHiderWidget(widgets.DOMWidget):
     previous_value = Unicode('none').tag(sync=True)
     value = Unicode('default').tag(sync=True)
     min_index = Int(1).tag(sync=True)
+    backup = Bool(False).tag(sync=True)
+    load_backup = Bool(False).tag(sync=True)
 
 
 class CellTab(widgets.Tab):
@@ -40,7 +44,16 @@ class CellTab(widgets.Tab):
         new_tab_text_widget = widgets.Text(placeholder='New tab name')
         new_tab_text_widget.continuous_update = False
         new_tab_text_widget.observe(self._handle_tab_button_click, 'value')
-        self.add_child(new_tab_text_widget)
+
+        save_backup_button_widget = widgets.Button(description='Backup')
+        save_backup_button_widget.on_click(self.backup)
+
+        load_backup_button_widget = widgets.Button(description='Load backup')
+        load_backup_button_widget.on_click(self.load_backup)
+
+        self.add_child(widgets.VBox([new_tab_text_widget,
+                                     save_backup_button_widget,
+                                     load_backup_button_widget]))
         self.set_title(len(self.children)-1, '+')
 
         self.observe(self._handle_tab_change, 'selected_index')
@@ -80,7 +93,7 @@ class CellTab(widgets.Tab):
         self.set_title(idx+1, '+')
 
         if idx == 0:
-            print('First tab to be added')
+            # print('First tab to be added')
             self.cell_hider_widget.previous_value = self.name
             self.cell_hider_widget.value = self.name
         else:
@@ -96,12 +109,33 @@ class CellTab(widgets.Tab):
         elif self.parent is not None:
             self.parent._handle_tab_change(change)
         else:
-            print('changing value in Python')
+            # print('changing value in Python')
             self.cell_hider_widget.previous_value = self.cell_hider_widget.value
             self.cell_hider_widget.value = self.name
 
     def _handle_subtab_button_click(self, change):
         subtab = self.add_subtab([], index=self.selected_index, replace=True)
+
+    def get_tab_dict(self):
+        if hasattr(self, 'children') and len(self.children) > 1:
+            d = OrderedDict()
+            for k, child in enumerate(self.children):
+                name = self.get_title(k)
+                if name == '+':
+                    continue
+                elif hasattr(child, 'get_tab_dict'):
+                    d[name] = child.get_tab_dict()
+                else:
+                    d[name] = []
+            return d
+        else:
+            return []
+
+    def backup(self, change):
+        self.cell_hider_widget.backup = not self.cell_hider_widget.backup
+
+    def load_backup(self, change):
+        self.cell_hider_widget.load_backup = not self.cell_hider_widget.load_backup
 
     def add_subtab_button(self, index=None, replace=False):
         button = widgets.Button(
