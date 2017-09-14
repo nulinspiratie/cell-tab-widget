@@ -1,4 +1,5 @@
 from time import sleep
+import json
 import ipywidgets as widgets
 from IPython.display import display
 from traitlets import Unicode, Int, Bool, List
@@ -29,27 +30,14 @@ class CellHiderWidget(widgets.DOMWidget):
 
 class CellTab(widgets.Tab):
     cell_hider_widget = None
-    def __init__(self, names: Union[list, dict], parent=None, min_index=1):
+    def __init__(self, names: Union[list, dict]=None, filepath=None,
+                 parent=None, min_index=1):
         super().__init__()
-
-        if isinstance(names, list):
-            names = {name: {} for name in names}
-        self.names = names
+        self.filepath = filepath
         self.parent = parent
         self.children = []
 
-        if names:
-            for k, (name, tab_names) in enumerate(names.items()):
-                if tab_names:
-                    self.add_subtab(tab_names)
-                else:
-                    self.add_subtab_button()
-                self.set_title(k, str(name))
-
-        # Add plus tab
-        self.create_plus_tab()
-
-        self.observe(self._handle_tab_change, 'selected_index')
+        self.load(names=names, filepath=filepath)
 
         if parent is None:
             # Add the widget that actually handles the hiding
@@ -188,6 +176,41 @@ class CellTab(widgets.Tab):
         else:
             return []
 
+    def save(self, filepath=None):
+        if filepath is None:
+            filepath = self.filepath
+
+        with open(filepath, 'w') as file:
+            json.dump(self.get_tab_dict(), file, sort_keys=True)
+
+    def load(self, names=None, filepath=None):
+
+
+        if filepath is not None:
+            with open(filepath, 'r') as file:
+                names = json.load(file, object_pairs_hook=OrderedDict)
+
+        if not names:
+            names = {}
+        elif isinstance(names, list):
+            names = {name: {} for name in names}
+
+        self.names = names
+
+        for k, (name, tab_names) in enumerate(names.items()):
+            if tab_names:
+                self.add_subtab(tab_names)
+            else:
+                self.add_subtab_button()
+            self.set_title(k, str(name))
+
+        # Add plus tab
+        self.create_plus_tab()
+
+        self.observe(self._handle_tab_change, 'selected_index')
+
+
+
     def backup(self, change):
         self.cell_hider_widget.backup_trigger = not \
             self.cell_hider_widget.backup_trigger
@@ -207,7 +230,6 @@ class CellTab(widgets.Tab):
             self.cell_hider_widget.show_ungrouped_trigger
 
     def show_initialization(self, change):
-        print('showing initialization cells')
         self.cell_hider_widget.base_name = self.base_name
         self.cell_hider_widget.show_initialization_trigger = \
             not self.cell_hider_widget.show_initialization_trigger
